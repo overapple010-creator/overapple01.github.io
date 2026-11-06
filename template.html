@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>주간 할일 대시보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f4f5f7; --surface:#ffffff; --surface-2:#f8f9fb; --border:#e3e5e9;
+  --text:#14161a; --text-2:#52565e; --muted:#8a8f98;
+  --brand:#2a78d6; --brand-weak:#e8f1fc;
+  --s-o:#2a78d6;   /* 완료(O) — categorical slot 1 */
+  --s-x:#eb6834;   /* 미완료(X) — categorical slot 2 */
+  --grid:#eceef1;
+  --good:#1a7f37; --good-bg:#e6f4ea; --bad:#c4321c; --bad-bg:#fdece8;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --bg:#111213; --surface:#1a1a19; --surface-2:#222321; --border:#33342f;
+    --text:#f0efec; --text-2:#c3c2b7; --muted:#8f8e86;
+    --brand:#3987e5; --brand-weak:#1d2a3b;
+    --s-o:#3987e5; --s-x:#d95926; --grid:#2a2b28;
+    --good:#4cc26b; --good-bg:#16301d; --bad:#ff8a73; --bad-bg:#3a1d17;
+    --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Pretendard,"맑은 고딕",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:1280px;margin:0 auto;padding:24px 24px 64px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+header h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em}
+header .sub{color:var(--muted);font-size:13px}
+header .spacer{flex:1}
+.btn{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.primary:hover{filter:brightness(1.05)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.danger{color:var(--bad)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px}
+.kpi{padding:16px}
+.kpi .label{color:var(--text-2);font-size:12px;font-weight:600}
+.kpi .value{font-size:26px;font-weight:700;margin-top:4px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .hint{color:var(--muted);font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1.25fr;gap:16px;margin-bottom:16px}
+.section{padding:18px 20px}
+.section h2{font-size:15px;margin:0 0 2px;font-weight:700}
+.section .desc{color:var(--muted);font-size:12px;margin:0 0 14px}
+.sec-head{display:flex;align-items:flex-start;gap:12px}
+.sec-head .spacer{flex:1}
+select,input[type=text],input[type=date],input[type=number],textarea{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:7px 10px;font-size:13px}
+textarea{width:100%;min-height:80px;resize:vertical}
+/* chart */
+.legend{display:flex;gap:14px;font-size:12px;color:var(--text-2);margin-bottom:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:220px;overflow:visible}
+td.acc{white-space:nowrap}
+.chart .axis text{fill:var(--muted);font-size:11px}
+.tip{position:fixed;pointer-events:none;background:var(--text);color:var(--surface);padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.5;opacity:0;transition:opacity .1s;z-index:50;white-space:nowrap}
+.tip b{font-weight:700}
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--text-2);font-weight:600;font-size:12px;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--surface-2)}
+td{padding:9px 10px;border-bottom:1px solid var(--grid);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.ctr,th.ctr{text-align:center}
+tr:last-child td{border-bottom:none}
+.rate{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.rate .bar{width:70px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
+.rate .bar span{display:block;height:100%;background:var(--s-o);border-radius:3px}
+.rate .pct{min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
+.tbl-scroll{overflow:auto}
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--brand-weak);color:var(--brand);white-space:nowrap}
+/* tasks */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filters input[type=text]{min-width:220px}
+.ox{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.ox button{border:none;background:transparent;padding:4px 11px;cursor:pointer;font-weight:700;color:var(--muted)}
+.ox button+button{border-left:1px solid var(--border)}
+.ox button.on-o{background:var(--good-bg);color:var(--good)}
+.ox button.on-x{background:var(--bad-bg);color:var(--bad)}
+.pre{white-space:pre-wrap;color:var(--text-2);font-size:12.5px;max-height:3.1em;overflow:hidden;cursor:pointer}
+.pre.open{max-height:none}
+.todo{white-space:pre-wrap;font-weight:500}
+.acc{font-weight:600}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.row-actions{white-space:nowrap}
+.budget-in{width:112px;text-align:right;padding:5px 8px;font-variant-numeric:tabular-nums;border:1px solid var(--border);border-radius:6px;background:var(--surface)}
+.budget-in:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.row-actions .btn{padding:4px 8px;font-size:12px}
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(10,12,16,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal-bg.show{display:flex}
+.modal{width:min(640px,100%);max-height:90vh;overflow:auto;padding:22px}
+.modal h3{margin:0 0 14px;font-size:17px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--text-2)}
+.form .full{grid-column:1/-1}
+.form input,.form select{width:100%}
+.modal .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.drop{position:fixed;inset:0;background:rgba(42,120,214,.12);border:3px dashed var(--brand);display:none;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--brand);z-index:90}
+.drop.show{display:flex}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;z-index:120}
+.toast.show{opacity:1}
+.welcome{display:none;padding:28px;margin-bottom:16px;text-align:center;border-style:dashed}
+.welcome.show{display:block}
+.welcome h2{margin:0 0 6px;font-size:17px}
+.welcome p{margin:0 0 14px;color:var(--text-2)}
+.welcome .note{margin-top:12px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+/* tabs */
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:16px;width:max-content}
+.tabs button{border:none;background:transparent;padding:7px 16px;border-radius:7px;cursor:pointer;font-weight:600;color:var(--text-2)}
+.tabs button.on{background:var(--brand);color:#fff}
+.view{display:none}.view.on{display:block}
+/* partner view */
+:root{--st-done:#2a78d6;--st-prog:#8fb8ea;--st-todo:#d5d8de;--st-hold:#eb6834;--s-2y:#1baf7a}
+@media (prefers-color-scheme: dark){:root{--st-done:#3987e5;--st-prog:#2d5a8f;--st-todo:#3a3b37;--st-hold:#d95926;--s-2y:#199e70}}
+.hbar{display:flex;height:12px;border-radius:4px;overflow:hidden;gap:2px;background:transparent;min-width:120px}
+.hbar span{display:block;height:100%}
+.area-row{cursor:pointer}
+.area-row:hover td{background:var(--surface-2)}
+.area-items td{background:var(--surface-2);padding:0}
+.area-items table{font-size:12.5px}
+.area-items th{background:transparent}
+.st{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.st-완료{background:var(--good-bg);color:var(--good)}
+.st-진행중{background:var(--brand-weak);color:var(--brand)}
+.st-미착수{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}
+.st-보류{background:var(--bad-bg);color:var(--bad)}
+.st-해당없음{color:var(--muted);text-decoration:line-through}
+.chk{display:inline-flex;width:22px;height:22px;border-radius:6px;align-items:center;justify-content:center;font-weight:800;font-size:12px}
+.chk.y{background:var(--good-bg);color:var(--good)}
+.chk.n{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}
+.region-bars .rb{display:grid;grid-template-columns:78px 1fr 150px;gap:10px;align-items:center;padding:5px 0;font-size:12.5px}
+.region-bars .track{display:flex;gap:2px;height:14px}
+.region-bars .track span{display:block;height:100%}
+.region-bars .track span:first-child{border-radius:4px 0 0 4px}
+.region-bars .track span:last-child{border-radius:0 4px 4px 0}
+.region-bars .track span:only-child{border-radius:4px}
+.pill{font-size:11px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;white-space:nowrap}
+.pill.hot{background:var(--brand-weak);color:var(--brand);border-color:transparent;font-weight:700}
+.st-sel{border:none;cursor:pointer;appearance:auto;padding:2px 6px}
+.note{font-size:12px;color:var(--muted)}
+.stage-sel{font-weight:700;padding:4px 8px;border-radius:999px;cursor:pointer}
+.stage-발굴{background:var(--surface-2);color:var(--text-2)}
+.stage-준비중{background:var(--brand-weak);color:var(--brand);border-color:transparent}
+.stage-체결{background:var(--good-bg);color:var(--good);border-color:transparent}
+.stage-실패{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.link-todo{font-size:12px;color:var(--text-2);min-width:190px;max-width:260px}
+.link-todo b{color:var(--text)}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>주간 할일 대시보드</h1>
+      <div class="sub" id="sourceInfo"></div>
+    </div>
+    <div class="spacer"></div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+    <button class="btn" id="btnImport" title="할일.xlsx 또는 Connect_파트너사_인게이지_대시보드.xlsx를 불러옵니다 (드래그해서 놓아도 됩니다)">📂 엑셀 불러오기</button>
+    <button class="btn todo-only" id="btnExport">⬇ 엑셀로 내보내기</button>
+    <button class="btn primary todo-only" id="btnAdd">＋ 할일 추가</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="todo" class="on">주간 할일</button>
+    <button role="tab" data-view="partner">파트너 인게이지</button>
+    <button role="tab" data-view="univ">대학 목록</button>
+  </nav>
+
+  <div class="view" id="view-univ">
+    <section class="card welcome" id="uWelcome">
+      <h2>대학 목록을 불러오세요</h2>
+      <p>Connect_파트너사_인게이지_대시보드.xlsx의 '대학목록' 시트를 사용합니다. 파일을 불러오거나 화면에 끌어다 놓으세요.</p>
+      <button class="btn primary" data-import>📂 엑셀 불러오기</button>
+    </section>
+    <section class="kpis" id="uKpis"></section>
+    <section class="card section" id="uSection">
+      <h2>대학 목록</h2>
+      <p class="desc">Connect_파트너사_인게이지_대시보드.xlsx '대학목록' 시트 · 거래상태는 여기서 바로 선택하면 이 브라우저에 저장되고 파트너 인게이지 탭 영업기회 집계에도 반영됩니다 · 주간 할일은 할일 탭에서 같은 학교명으로 연동됩니다</p>
+      <div class="filters">
+        <input type="text" id="uq" placeholder="검색 (학교명, 소재지)">
+        <select id="uRegion"><option value="">전체 권역</option></select>
+        <select id="uType"><option value="">전체 구분</option></select>
+        <select id="uStatus"><option value="">전체 거래상태</option></select>
+        <label class="note" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="uGlocal">글로컬만</label>
+        <label class="note" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="uTodo">할일 있는 학교만</label>
+        <button class="btn ghost" id="uReset">필터 초기화</button>
+        <span class="note" id="uCount" style="margin-left:auto"></span>
+      </div>
+      <div class="tbl-scroll"><table id="univTable"></table></div>
+    </section>
+  </div>
+
+  <div class="view" id="view-partner">
+    <section class="card welcome" id="pWelcome">
+      <h2>파트너 인게이지 데이터를 불러오세요</h2>
+      <p>Connect_파트너사_인게이지_대시보드.xlsx 파일을 불러오거나 이 화면에 끌어다 놓으면 대시보드가 채워집니다.</p>
+      <button class="btn primary" data-import>📂 엑셀 불러오기</button>
+      <p class="note">불러온 데이터는 서버로 올라가지 않고 이 브라우저에만 저장됩니다.</p>
+    </section>
+    <section class="kpis" id="pKpis"></section>
+    <div class="grid2" style="grid-template-columns:1.15fr 1fr">
+      <section class="card section">
+        <h2>① 준비 영역별 현황</h2>
+        <p class="desc">준비율 = 완료 ÷ (전체 − 해당없음) · 행을 누르면 체크리스트가 펼쳐집니다</p>
+        <div class="legend" id="areaLegend"></div>
+        <div class="tbl-scroll"><table id="areaTable"></table></div>
+      </section>
+      <section class="card section">
+        <h2>③ 권역별 영업기회와 파트너 커버리지</h2>
+        <p class="desc">영업기회 대학 수(4년제·2년제) · 파트너 수 · 글로컬 · 우선순위(초안)</p>
+        <div class="legend"><span><i style="background:var(--s-o)"></i>4년제</span><span><i style="background:var(--s-2y)"></i>2년제</span></div>
+        <div class="region-bars" id="regionBars"></div>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--text-2);font-size:12px">표로 보기</summary>
+          <div class="tbl-scroll" style="margin-top:8px"><table id="regionTable"></table></div></details>
+      </section>
+    </div>
+    <section class="card section" style="margin-bottom:16px">
+      <div class="sec-head">
+        <div>
+          <h2>② 파트너사별 준비 현황</h2>
+          <p class="desc">인게이지 단계·계약은 여기서 바로 선택하면 이 브라우저에 저장됩니다 · '주간 할일'은 할일 탭에서 같은 회사명으로 연동됩니다</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn primary" id="btnAddPartner">＋ 파트너사 추가</button>
+      </div>
+      <div class="tbl-scroll"><table id="partnerTable"></table></div>
+    </section>
+    <p class="note" id="pSource" style="margin-top:12px"></p>
+  </div>
+
+  <div class="view on" id="view-todo">
+  <section class="card welcome" id="tWelcome">
+    <h2>할일 데이터를 불러오세요</h2>
+    <p>할일.xlsx 파일을 불러오거나 이 화면에 끌어다 놓으면 대시보드가 채워집니다. ＋ 할일 추가로 바로 입력해도 됩니다.</p>
+    <button class="btn primary" data-import>📂 엑셀 불러오기</button>
+    <p class="note">불러온 데이터는 서버로 올라가지 않고 이 브라우저에만 저장됩니다. 다른 PC·브라우저에서는 다시 불러와야 합니다.</p>
+  </section>
+  <section class="kpis" id="kpis"></section>
+
+  <div class="grid2">
+    <section class="card section">
+      <div class="sec-head">
+        <div>
+          <h2>월간 할일 및 달성여부</h2>
+          <p class="desc">일자 기준 · 달성률 = O ÷ (O+X)</p>
+        </div>
+        <div class="spacer"></div>
+        <select id="yearSel" aria-label="연도"></select>
+      </div>
+      <div class="legend"><span><i style="background:var(--s-o)"></i>완료(O)</span><span><i style="background:var(--s-x)"></i>미완료(X)</span></div>
+      <div class="chart" id="monthChart"></div>
+      <details style="margin-top:10px"><summary style="cursor:pointer;color:var(--text-2);font-size:12px">표로 보기</summary>
+        <div class="tbl-scroll" style="margin-top:8px"><table id="monthTable"></table></div>
+      </details>
+    </section>
+
+    <section class="card section">
+      <h2>Account별 할일 결과 (누적)</h2>
+      <p class="desc">전체 기간 누적 · 달성률 = O(1)·X(0) 산술평균 · 행을 누르면 해당 Account 할일만 보입니다</p>
+      <div class="tbl-scroll"><table id="accTable"></table></div>
+    </section>
+  </div>
+
+  <section class="card section">
+    <div class="sec-head">
+      <div>
+        <h2>주간할일</h2>
+        <p class="desc">O / X 버튼으로 바로 수행여부를 바꿀 수 있습니다 · History를 누르면 펼쳐집니다</p>
+      </div>
+    </div>
+    <div class="filters">
+      <input type="text" id="q" placeholder="검색 (Account, 담당자, To Do, History)">
+      <select id="fAcc"><option value="">전체 Account</option></select>
+      <select id="fProd"><option value="">전체 Product</option></select>
+      <select id="fDone">
+        <option value="">전체 수행여부</option><option value="O">O (완료)</option><option value="X">X (미완료)</option>
+      </select>
+      <select id="fPeriod">
+        <option value="">전체 기간</option><option value="week">이번 주</option><option value="month">이번 달</option>
+      </select>
+      <button class="btn ghost" id="btnReset">필터 초기화</button>
+      <span class="sub" id="countInfo" style="margin-left:auto;color:var(--muted);font-size:12px"></span>
+    </div>
+    <div class="tbl-scroll"><table id="taskTable"></table></div>
+  </section>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="card modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h3 id="mTitle">할일 추가</h3>
+    <form class="form" id="form">
+      <label>일자<input type="date" name="date" required></label>
+      <label>Account<input type="text" name="account" list="accList" required></label>
+      <label>Product<input type="text" name="product" list="prodList"></label>
+      <label>고객담당자<input type="text" name="contact"></label>
+      <label>예산 편성 (원)<input type="number" name="budget" min="0" step="1000"></label>
+      <label>수행여부
+        <select name="done"><option value="">미기입</option><option value="O">O</option><option value="X">X</option></select>
+      </label>
+      <label class="full">To Do<textarea name="todo"></textarea></label>
+      <label class="full">History<textarea name="history"></textarea></label>
+    </form>
+    <div class="foot">
+      <button class="btn danger" id="mDelete" style="margin-right:auto">삭제</button>
+      <button class="btn" id="mCancel">취소</button>
+      <button class="btn primary" id="mSave">저장</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="pModalBg">
+  <div class="card modal" role="dialog" aria-modal="true" aria-labelledby="pmTitle">
+    <h3 id="pmTitle">파트너사 추가</h3>
+    <form class="form" id="pForm">
+      <label>권역<select name="region" id="pRegionSel" required></select></label>
+      <label>회사명<input type="text" name="name" required></label>
+      <label>홈페이지<input type="text" name="web" placeholder="example.co.kr"></label>
+      <label>인게이지 단계<select name="stage"><option>발굴</option><option>준비중</option><option>체결</option><option>실패</option></select></label>
+      <label>계약<select name="contract"><option>X</option><option>O</option></select></label>
+      <label>지역(상세)<input type="text" name="loc" placeholder="예: 대전 유성구"></label>
+      <label class="full">확인 필요<input type="text" name="issue"></label>
+    </form>
+    <div class="foot">
+      <button class="btn danger" id="pmDelete" style="margin-right:auto">삭제</button>
+      <button class="btn" id="pmCancel">취소</button>
+      <button class="btn primary" id="pmSave">저장</button>
+    </div>
+  </div>
+</div>
+<datalist id="accList"></datalist><datalist id="prodList"></datalist>
+<div class="drop" id="drop">할일.xlsx 파일을 여기에 놓으세요</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SEED = /*SEED*/[];
+const LS_KEY = 'todo-dashboard-v1';
+const COLS = [['date','일자'],['account','Account'],['product','Product'],['history','History'],['budget','예산 편성'],['contact','고객담당자'],['todo','To Do'],['done','수행여부']];
+
+let state = load();
+let editingId = null;
+
+function uid(){return Math.random().toString(36).slice(2,10)}
+function load(){
+  try{const s=JSON.parse(localStorage.getItem(LS_KEY)); if(s&&Array.isArray(s.tasks)) return s;}catch(e){}
+  return {tasks:SEED.map(t=>({...t,id:uid()})), source:SEED.length?'할일.xlsx (기본 데이터)':'데이터 없음', updated:null};
+}
+function save(){state.updated=new Date().toISOString();localStorage.setItem(LS_KEY,JSON.stringify(state));}
+
+// ---------- date helpers ----------
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+function parseD(s){if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d);}
+function weekRange(){const t=new Date();t.setHours(0,0,0,0);const dow=(t.getDay()+6)%7;const s=new Date(t);s.setDate(t.getDate()-dow);const e=new Date(s);e.setDate(s.getDate()+7);return [s,e];}
+function monthRange(){const t=new Date();return [new Date(t.getFullYear(),t.getMonth(),1),new Date(t.getFullYear(),t.getMonth()+1,1)];}
+const inRange=(t,[s,e])=>{const d=parseD(t.date);return d&&d>=s&&d<e;};
+const DOW='일월화수목금토';
+const fmtDate=s=>{const d=parseD(s);return d?`${s.slice(2).replace(/-/g,'.')} (${DOW[d.getDay()]})`:'-';};
+const won=n=>n?Number(n).toLocaleString('ko-KR')+' 원':'-';
+const rate=(o,x)=>o+x===0?null:o/(o+x);
+const pct=r=>r===null?'-':(r*100).toFixed(1)+'%';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// ---------- render ----------
+function render(){
+  renderKpis(); renderYear(); renderMonth(); renderAcc(); renderFilters(); renderTasks();
+  document.getElementById('tWelcome').classList.toggle('show', state.tasks.length===0);
+  const n=state.tasks.length;
+  document.getElementById('sourceInfo').textContent =
+    `${state.source} · ${n}건` + (state.updated?` · 마지막 수정 ${new Date(state.updated).toLocaleString('ko-KR')}`:'');
+}
+
+function renderKpis(){
+  const T=state.tasks, wk=weekRange(), mo=monthRange();
+  const month=T.filter(t=>inRange(t,mo));
+  const mo_o=month.filter(t=>t.done==='O').length, mo_x=month.filter(t=>t.done==='X').length;
+  const all_o=T.filter(t=>t.done==='O').length, all_x=T.filter(t=>t.done==='X').length;
+  const items=[
+    ['총 할일 건수',T.length+'건',`완료 ${all_o} · 미완료 ${all_x}`],
+    ['예산 편성 합계',won(T.reduce((a,t)=>a+(+t.budget||0),0)),''],
+    ['To Do 등록 건수',T.filter(t=>String(t.todo).trim()).length+'건',''],
+    ['이번 주(월~일) 할일',T.filter(t=>inRange(t,wk)).length+'건',`${ymd(wk[0]).slice(5)} ~ ${ymd(new Date(wk[1]-864e5)).slice(5)}`],
+    ['이번 달 할일',month.length+'건',`${new Date().getMonth()+1}월`],
+    ['이번 달 달성률',pct(rate(mo_o,mo_x)),`O ${mo_o} · X ${mo_x}`],
+  ];
+  document.getElementById('kpis').innerHTML=items.map(([l,v,h])=>
+    `<div class="card kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h||'&nbsp;'}</div></div>`).join('');
+}
+
+function years(){const ys=new Set(state.tasks.map(t=>t.date&&+t.date.slice(0,4)).filter(Boolean));ys.add(new Date().getFullYear());return [...ys].sort();}
+function renderYear(){
+  const sel=document.getElementById('yearSel'), cur=+sel.value||new Date().getFullYear();
+  sel.innerHTML=years().map(y=>`<option ${y===cur?'selected':''}>${y}</option>`).join('');
+}
+function monthData(){
+  const y=+document.getElementById('yearSel').value;
+  return Array.from({length:12},(_,i)=>{
+    const ts=state.tasks.filter(t=>t.date&&+t.date.slice(0,4)===y&&+t.date.slice(5,7)===i+1);
+    const o=ts.filter(t=>t.done==='O').length, x=ts.filter(t=>t.done==='X').length;
+    return {m:i+1,n:ts.length,o,x,r:rate(o,x)};
+  });
+}
+function renderMonth(){
+  const el=document.getElementById('monthChart');
+  const data=monthData(), W=Math.max(320,el.clientWidth||560),H=220,pl=28,pr=8,pt=18,pb=26;
+  const max=Math.max(4,...data.map(d=>d.o+d.x));
+  const step=Math.ceil(max/4), top=step*4;
+  const cw=(W-pl-pr)/12, bw=Math.min(22,cw*0.5);
+  const y=v=>pt+(H-pt-pb)*(1-v/top);
+  const now=new Date(), curY=+document.getElementById('yearSel').value===now.getFullYear()?now.getMonth()+1:0;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 완료·미완료 건수 막대 차트"><g class="axis">`;
+  for(let i=0;i<=4;i++){const v=step*i;s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end">${v}</text>`;}
+  data.forEach((d,i)=>{const cx=pl+cw*i+cw/2;s+=`<text x="${cx}" y="${H-8}" text-anchor="middle" ${d.m===curY?'style="fill:var(--text);font-weight:700"':''}>${d.m}월</text>`;});
+  s+='</g>';
+  data.forEach((d,i)=>{
+    const cx=pl+cw*i+cw/2, x0=cx-bw/2;
+    if(d.m===curY) s+=`<rect x="${pl+cw*i+2}" y="${pt}" width="${cw-4}" height="${H-pt-pb}" rx="6" fill="var(--brand-weak)" opacity=".6"/>`;
+    // stacked: O at bottom, X on top, 2px gap, rounded top end only
+    const segs=[];
+    if(d.o) segs.push({v:d.o,c:'var(--s-o)'});
+    if(d.x) segs.push({v:d.x,c:'var(--s-x)'});
+    let base=0;
+    segs.forEach((sg,k)=>{
+      const y1=y(base+sg.v), y0=y(base)-(k>0?2:0), h=Math.max(0,y0-y1);
+      const last=k===segs.length-1, r=Math.min(4,h);
+      s+= last
+        ? `<path d="M${x0},${y0} V${y1+r} Q${x0},${y1} ${x0+r},${y1} H${x0+bw-r} Q${x0+bw},${y1} ${x0+bw},${y1+r} V${y0} Z" fill="${sg.c}"/>`
+        : `<rect x="${x0}" y="${y1}" width="${bw}" height="${h}" fill="${sg.c}"/>`;
+      base+=sg.v;
+    });
+    if(d.o+d.x>0) s+=`<text x="${cx}" y="${y(d.o+d.x)-5}" text-anchor="middle" style="fill:var(--text-2);font-size:11px;font-weight:600">${pct(d.r)}</text>`;
+    s+=`<rect class="hit" data-i="${i}" x="${pl+cw*i}" y="${pt}" width="${cw}" height="${H-pt-pb}" fill="transparent"/>`;
+  });
+  s+='</svg>';
+  el.innerHTML=s;
+  const tip=document.getElementById('tip');
+  el.querySelectorAll('.hit').forEach(h=>{
+    h.addEventListener('mousemove',e=>{const d=data[+h.dataset.i];
+      tip.innerHTML=`<b>${d.m}월</b><br>할일 ${d.n}건<br>완료(O) ${d.o} · 미완료(X) ${d.x}${d.n-d.o-d.x?` · 미기입 ${d.n-d.o-d.x}`:''}<br>달성률 <b>${pct(d.r)}</b>`;
+      tip.style.opacity=1; tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY+14)+'px';});
+    h.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+  const tot=data.reduce((a,d)=>({n:a.n+d.n,o:a.o+d.o,x:a.x+d.x}),{n:0,o:0,x:0});
+  document.getElementById('monthTable').innerHTML=
+    `<tr><th>월</th><th class="num">할일 건수</th><th class="num">완료(O)</th><th class="num">미완료(X)</th><th class="num">달성률</th></tr>`+
+    data.map(d=>`<tr><td>${d.m}월</td><td class="num">${d.n}</td><td class="num">${d.o}</td><td class="num">${d.x}</td><td class="num">${pct(d.r)}</td></tr>`).join('')+
+    `<tr><td><b>합계</b></td><td class="num"><b>${tot.n}</b></td><td class="num"><b>${tot.o}</b></td><td class="num"><b>${tot.x}</b></td><td class="num"><b>${pct(rate(tot.o,tot.x))}</b></td></tr>`;
+}
+
+function accData(){
+  const m=new Map();
+  state.tasks.forEach(t=>{const k=String(t.account||'').trim(); if(!k) return;
+    if(!m.has(k)) m.set(k,{name:k,product:t.product||'',n:0,b:0,o:0,x:0});
+    const a=m.get(k); a.n++; a.b+=(+t.budget||0); if(t.done==='O')a.o++; if(t.done==='X')a.x++;});
+  return [...m.values()];
+}
+function renderAcc(){
+  const rows=accData(), sel=document.getElementById('fAcc').value;
+  document.getElementById('accTable').innerHTML=
+    `<tr><th>Account</th><th>Product</th><th class="num">누적 할일</th><th class="num">예산 합계</th><th class="num">O</th><th class="num">X</th><th class="num">달성률</th></tr>`+
+    (rows.length?rows.map(a=>{const r=rate(a.o,a.x);
+      return `<tr class="acc-row" data-acc="${esc(a.name)}" style="cursor:pointer;${sel===a.name?'background:var(--brand-weak)':''}">
+        <td class="acc">${esc(a.name)}</td><td>${a.product?`<span class="tag">${esc(a.product)}</span>`:''}</td>
+        <td class="num">${a.n}</td><td class="num">${won(a.b)}</td><td class="num">${a.o}</td>
+        <td class="num" ${a.x?'style="color:var(--bad);font-weight:700"':''}>${a.x}</td>
+        <td><div class="rate"><div class="bar"><span style="width:${(r||0)*100}%"></span></div><span class="pct">${pct(r)}</span></div></td></tr>`;}).join('')
+      :`<tr><td colspan="7" class="empty">아직 할일이 없습니다</td></tr>`);
+  document.querySelectorAll('.acc-row').forEach(tr=>tr.onclick=()=>{
+    const f=document.getElementById('fAcc'); f.value=f.value===tr.dataset.acc?'':tr.dataset.acc; renderAcc(); renderTasks();
+    document.getElementById('taskTable').scrollIntoView({behavior:'smooth',block:'start'});});
+}
+
+function renderFilters(){
+  const fill=(id,vals,label)=>{const el=document.getElementById(id),cur=el.value;
+    el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option ${v===cur?'selected':''}>${esc(v)}</option>`).join('');};
+  const accs=[...new Set(state.tasks.map(t=>t.account).filter(Boolean))];
+  const prods=[...new Set(state.tasks.map(t=>t.product).filter(Boolean))];
+  fill('fAcc',accs,'전체 Account'); fill('fProd',prods,'전체 Product');
+  document.getElementById('accList').innerHTML=accs.map(a=>`<option value="${esc(a)}">`).join('');
+  document.getElementById('prodList').innerHTML=prods.map(a=>`<option value="${esc(a)}">`).join('');
+}
+
+function filtered(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const fa=document.getElementById('fAcc').value, fp=document.getElementById('fProd').value,
+        fd=document.getElementById('fDone').value, fper=document.getElementById('fPeriod').value;
+  return state.tasks.filter(t=>
+    (!fa||t.account===fa)&&(!fp||t.product===fp)&&(!fd||t.done===fd)&&
+    (!fper||inRange(t,fper==='week'?weekRange():monthRange()))&&
+    (!q||[t.account,t.contact,t.todo,t.history,t.product].join(' ').toLowerCase().includes(q))
+  ).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+}
+function renderTasks(){
+  const rows=filtered();
+  document.getElementById('countInfo').textContent=`${rows.length} / ${state.tasks.length}건`;
+  document.getElementById('taskTable').innerHTML=
+    `<tr><th>일자</th><th>Account</th><th>Product</th><th>To Do</th><th>History</th><th>고객담당자</th><th class="num">예산 (원)</th><th class="ctr">수행여부</th><th></th></tr>`+
+    (rows.length?rows.map(t=>`<tr data-id="${t.id}">
+      <td style="white-space:nowrap">${fmtDate(t.date)}</td>
+      <td class="acc">${esc(t.account)}</td>
+      <td>${t.product?`<span class="tag">${esc(t.product)}</span>`:''}</td>
+      <td class="todo" style="min-width:200px">${esc(t.todo)||'<span style="color:var(--muted)">-</span>'}</td>
+      <td style="min-width:220px;max-width:340px"><div class="pre" title="눌러서 펼치기/접기">${esc(t.history)||'<span style="color:var(--muted)">-</span>'}</div></td>
+      <td style="white-space:nowrap">${esc(t.contact)}</td>
+      <td class="num" style="white-space:nowrap"><input class="budget-in" type="text" inputmode="numeric" aria-label="${esc(t.account)} 예산(원)"
+        value="${+t.budget?Number(t.budget).toLocaleString('ko-KR'):''}" placeholder="금액 입력"> 원</td>
+      <td class="ctr"><div class="ox" role="group" aria-label="수행여부">
+        <button data-v="O" class="${t.done==='O'?'on-o':''}" aria-pressed="${t.done==='O'}">O</button>
+        <button data-v="X" class="${t.done==='X'?'on-x':''}" aria-pressed="${t.done==='X'}">X</button></div></td>
+      <td class="row-actions"><button class="btn ghost edit">수정</button></td></tr>`).join('')
+    :`<tr><td colspan="9" class="empty">조건에 맞는 할일이 없습니다</td></tr>`);
+  document.querySelectorAll('#taskTable tr[data-id]').forEach(tr=>{
+    const t=state.tasks.find(x=>x.id===tr.dataset.id);
+    tr.querySelectorAll('.ox button').forEach(b=>b.onclick=()=>{t.done=t.done===b.dataset.v?'':b.dataset.v;save();render();});
+    tr.querySelector('.pre').onclick=e=>e.currentTarget.classList.toggle('open');
+    tr.querySelector('.edit').onclick=()=>openModal(t);
+    const bi=tr.querySelector('.budget-in');
+    bi.oninput=()=>{const d=bi.value.replace(/[^\d]/g,''); bi.value=d?Number(d).toLocaleString('ko-KR'):'';};
+    bi.onkeydown=e=>{if(e.key==='Enter')bi.blur(); if(e.key==='Escape'){bi.value=+t.budget?Number(t.budget).toLocaleString('ko-KR'):'';bi.blur();}};
+    bi.onchange=()=>{const v=+bi.value.replace(/[^\d]/g,'')||0; if(v===(+t.budget||0)) return;
+      t.budget=v; save(); renderKpis(); renderAcc(); toast(`${t.account} 예산 ${won(v)} 저장`);};
+  });
+}
+
+// ---------- modal ----------
+const bg=document.getElementById('modalBg'), form=document.getElementById('form');
+function openModal(t){
+  editingId=t?t.id:null;
+  document.getElementById('mTitle').textContent=t?'할일 수정':'할일 추가';
+  document.getElementById('mDelete').style.display=t?'':'none';
+  const v=t||{date:ymd(new Date()),account:document.getElementById('fAcc').value,product:'',history:'',budget:'',contact:'',todo:'',done:''};
+  COLS.forEach(([k])=>form.elements[k].value=v[k]??'');
+  bg.classList.add('show'); form.elements.account.focus();
+}
+function closeModal(){bg.classList.remove('show');}
+document.getElementById('btnAdd').onclick=()=>openModal(null);
+document.getElementById('mCancel').onclick=closeModal;
+bg.onclick=e=>{if(e.target===bg)closeModal();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+document.getElementById('mSave').onclick=()=>{
+  if(!form.reportValidity()) return;
+  const v={}; COLS.forEach(([k])=>v[k]=form.elements[k].value.trim?form.elements[k].value.trim():form.elements[k].value);
+  v.budget=+v.budget||0;
+  if(editingId){Object.assign(state.tasks.find(t=>t.id===editingId),v);} else {state.tasks.push({...v,id:uid()});}
+  save(); closeModal(); render(); toast(editingId?'수정했습니다':'추가했습니다');
+};
+document.getElementById('mDelete').onclick=()=>{
+  if(!confirm('이 할일을 삭제할까요?')) return;
+  state.tasks=state.tasks.filter(t=>t.id!==editingId); save(); closeModal(); render(); toast('삭제했습니다');
+};
+
+// ---------- filters ----------
+['q','fAcc','fProd','fDone','fPeriod'].forEach(id=>document.getElementById(id).addEventListener(id==='q'?'input':'change',()=>{renderTasks(); if(id==='fAcc')renderAcc();}));
+document.getElementById('yearSel').onchange=renderMonth;
+document.getElementById('btnReset').onclick=()=>{['q','fAcc','fProd','fDone','fPeriod'].forEach(id=>document.getElementById(id).value='');renderAcc();renderTasks();};
+
+// ---------- excel import / export ----------
+function excelDate(v){
+  if(v instanceof Date) return ymd(v);
+  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return `${d.y}-${pad(d.m)}-${pad(d.d)}`;}
+  if(typeof v==='string'&&/^\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(v)){const [y,m,d]=v.split(/[-./]/);return `${y}-${pad(+m)}-${pad(parseInt(d))}`;}
+  return '';
+}
+async function importFile(file){
+  if(typeof XLSX==='undefined'){toast('엑셀 라이브러리를 불러오지 못했습니다 (인터넷 연결 확인)');return;}
+  const wb=XLSX.read(await file.arrayBuffer(),{cellDates:true});
+  if(wb.Sheets['파트너사']&&wb.Sheets['대학목록']){ importPartner(wb,file.name); return; }
+  const ws=wb.Sheets['주간할일']||wb.Sheets[wb.SheetNames.find(n=>n!=='대시보드')||wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+  const hdr=aoa[0].map(h=>String(h).trim());
+  const idx={}; const alias={date:['일자'],account:['Account'],product:['Product'],history:['History','요청사항'],budget:['예산 편성'],contact:['고객담당자'],todo:['To Do','미팅'],done:['수행여부']};
+  Object.entries(alias).forEach(([k,names])=>idx[k]=hdr.findIndex(h=>names.includes(h)));
+  if(idx.account<0){toast('주간할일 시트에서 Account 열을 찾지 못했습니다');return;}
+  const tasks=aoa.slice(1).filter(r=>String(r[idx.account]).trim()).map(r=>{
+    const g=k=>idx[k]>=0?r[idx[k]]:'';
+    return {id:uid(),date:excelDate(g('date')),account:String(g('account')).trim(),product:String(g('product')).trim(),
+      history:String(g('history')),budget:+g('budget')||0,contact:String(g('contact')).trim(),todo:String(g('todo')),
+      done:['O','X'].includes(String(g('done')).trim().toUpperCase())?String(g('done')).trim().toUpperCase():''};
+  });
+  if(state.tasks.length&&!confirm(`'${file.name}'의 ${tasks.length}건으로 지금 웹 데이터(${state.tasks.length}건)를 바꿀까요?`)) return;
+  state={tasks,source:file.name,updated:null}; save(); render(); toast(`${tasks.length}건을 불러왔습니다`);
+}
+document.querySelectorAll('#btnImport,[data-import]').forEach(b=>b.onclick=()=>document.getElementById('fileInput').click());
+document.getElementById('fileInput').onchange=e=>{if(e.target.files[0])importFile(e.target.files[0]);e.target.value='';};
+const drop=document.getElementById('drop');
+window.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('show');});
+drop.addEventListener('dragleave',()=>drop.classList.remove('show'));
+window.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('show');const f=e.dataTransfer.files[0];if(f)importFile(f);});
+
+document.getElementById('btnExport').onclick=()=>{
+  if(typeof XLSX==='undefined'){toast('엑셀 라이브러리를 불러오지 못했습니다');return;}
+  const rows=[COLS.map(c=>c[1])].concat([...state.tasks].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(t=>
+    COLS.map(([k])=>k==='date'?(t.date?parseD(t.date):''):k==='budget'?(+t.budget||0):t[k])));
+  const ws=XLSX.utils.aoa_to_sheet(rows,{cellDates:true});
+  ws['!cols']=[13,20,16,45,14,18,32,10].map(w=>({wch:w}));
+  for(let r=1;r<rows.length;r++){const c=ws[XLSX.utils.encode_cell({r,c:0})]; if(c&&c.t==='d') c.z='yyyy-mm-dd';}
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'주간할일');
+  XLSX.writeFile(wb,`주간할일_웹내보내기_${ymd(new Date())}.xlsx`);
+  toast('주간할일 시트만 내보냈습니다');
+};
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200);}
+
+// =================== 파트너 인게이지 ===================
+const PSEED = /*PSEED*/{};
+const PLS_KEY='partner-dashboard-v1';
+const AREAS=['1.계약서','2.정책서','3.딜 등록 채널','4.진행 보고 채널','5.영업 자료','6.영업전략'];
+const STATUSES=[['완료','var(--st-done)'],['진행중','var(--st-prog)'],['미착수','var(--st-todo)'],['보류','var(--st-hold)']];
+const ITEM_OPTS=['완료','진행중','해당없음'];
+const STAGE_OPTS=['발굴','준비중','체결','실패'];
+let pstate=(()=>{try{const s=JSON.parse(localStorage.getItem(PLS_KEY));if(s&&s.sheets)return s;}catch(e){}
+  return {sheets:PSEED,source:Object.keys(PSEED).length?'Connect_파트너사_인게이지_대시보드.xlsx (기본 데이터)':'데이터 없음',loaded:null};})();
+const col=L=>L.charCodeAt(0)-65;
+const cell=(r,L)=>{const v=r?r[col(L)]:'';return v===undefined||v===null?'':v;};
+const str=v=>String(v??'').trim();
+
+function pModel(){
+  const S=pstate.sheets;
+  const areas=AREAS.map(name=>{
+    const rows=(S[name]||[]).slice(5).filter(r=>str(cell(r,'B')));
+    const items=rows.map(r=>({id:str(cell(r,'A')),item:str(cell(r,'B')),detail:str(cell(r,'C')),owner:str(cell(r,'D')),
+      status:(pstate.itemEdits||{})[name+'|'+str(cell(r,'A'))]||str(cell(r,'E')),target:str(cell(r,'F')),done:str(cell(r,'G')),out:str(cell(r,'H')),note:str(cell(r,'I'))}));
+    const c=k=>items.filter(i=>i.status===k).length;
+    const na=c('해당없음'), today=ymd(new Date());
+    const open=items.filter(i=>i.status!=='완료'&&i.status!=='해당없음');
+    const late=open.filter(i=>i.target&&i.target<today).length;
+    const next=open.map(i=>i.target).filter(Boolean).sort()[0]||'';
+    return {name,items,total:items.length,done:c('완료'),prog:c('진행중'),todo:c('미착수'),hold:c('보류'),na,
+      rate:items.length-na?c('완료')/(items.length-na):0,late,next};
+  });
+  const univ=(S['대학목록']||[]).slice(4).filter(r=>str(cell(r,'B'))).map(r=>({region:str(cell(r,'A')),name:str(cell(r,'B')),
+    loc:str(cell(r,'C')),type:str(cell(r,'D')),kind:str(cell(r,'E')),status:(pstate.univEdits||{})[str(cell(r,'B'))]||str(cell(r,'F')),glocal:str(cell(r,'G')).startsWith('✔')}));
+  const deals=(S['딜 등록 대장']||[]).slice(4).filter(r=>str(cell(r,'D'))).map(r=>{
+    const u=univ.find(x=>x.name===str(cell(r,'D')));
+    return {date:str(cell(r,'B')),partner:str(cell(r,'C')),univ:str(cell(r,'D')),region:u?u.region:'',stage:str(cell(r,'K')),amount:+cell(r,'L')||0};});
+  const partners=(S['파트너사']||[]).slice(4).filter(r=>str(cell(r,'D'))).map(r=>{
+    const name=str(cell(r,'D')), ed=(pstate.edits||{})[name]||{};
+    const xStage=str(cell(r,'J')), xK=str(cell(r,'K'));
+    const stage=ed.stage||(STAGE_OPTS.includes(xStage)?xStage:'발굴');
+    const contract=ed.contract||((xK==='서명 완료'||xK.toUpperCase()==='O')?'O':'X');
+    return {no:cell(r,'A'),region:str(cell(r,'B')),loc:str(cell(r,'C')),name,web:str(cell(r,'H')),stage,contract,
+      deals:deals.filter(d=>d.partner===name).length,issue:str(cell(r,'U'))};});
+  (pstate.customPartners||[]).forEach((c,i)=>{const ed=(pstate.edits||{})[c.name]||{};
+    partners.push({no:partners.length+1,region:c.region,loc:c.loc||'',name:c.name,web:c.web||'',stage:ed.stage||c.stage||'발굴',
+      contract:ed.contract||c.contract||'X',deals:0,issue:c.issue||'',custom:c.id});});
+  const strat=(S['6.영업전략']||[]).slice(5).filter(r=>str(cell(r,'K')));
+  const regions=strat.map(r=>{const k=str(cell(r,'K')), ops=univ.filter(u=>u.region===k&&u.status==='영업기회');
+    return {region:k,partners:partners.filter(p=>p.region===k).length,y4:ops.filter(u=>u.type==='4년제').length,
+      y2:ops.filter(u=>u.type==='2년제').length,glocal:ops.filter(u=>u.glocal).length,
+      existing:univ.filter(u=>u.region===k&&u.status!=='영업기회').length,deals:deals.filter(d=>d.region===k).length,priority:str(cell(r,'S'))};});
+  return {areas,partners,regions,deals,univ};
+}
+
+function renderPartner(){
+  const hasP=!!(pstate.sheets&&pstate.sheets['파트너사']);
+  document.getElementById('pWelcome').classList.toggle('show',!hasP);
+  document.querySelectorAll('#view-partner > :not(#pWelcome)').forEach(el=>el.style.display=hasP?'':'none');
+  if(!hasP) return;
+  const M=pModel(), A=M.areas;
+  const tot=A.reduce((a,x)=>({t:a.t+x.total,d:a.d+x.done,na:a.na+x.na}),{t:0,d:0,na:0});
+  const oppCovered=M.regions.filter(r=>r.partners>0).reduce((a,r)=>a+r.y4+r.y2,0);
+  const k=[['전체 준비율',pct(tot.t-tot.na?tot.d/(tot.t-tot.na):0),`해당없음 ${tot.na}개 제외`],
+    ['완료 / 전체 항목',`${tot.d} / ${tot.t}`,`진행중 ${A.reduce((a,x)=>a+x.prog,0)} · 미착수 ${A.reduce((a,x)=>a+x.todo,0)}`],
+    ['파트너사',M.partners.length+'곳',`${new Set(M.partners.map(p=>p.region)).size}개 권역`],
+    ['계약 완료',M.partners.filter(p=>p.contract==='O').length+'곳',STAGE_OPTS.map(s=>`${s} ${M.partners.filter(p=>p.stage===s).length}`).join(' · ')],
+    ['글로컬 영업기회',M.regions.reduce((a,r)=>a+r.glocal,0)+'개교',`파트너 권역 ${M.regions.filter(r=>r.partners>0).reduce((a,r)=>a+r.glocal,0)}개교`],
+    ['파트너 권역 영업기회',oppCovered+'개교',`전체 영업기회 ${M.regions.reduce((a,r)=>a+r.y4+r.y2,0)}개교`]];
+  document.getElementById('pKpis').innerHTML=k.map(([l,v,h])=>`<div class="card kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h||'&nbsp;'}</div></div>`).join('');
+
+  document.getElementById('areaLegend').innerHTML=STATUSES.map(([s,c])=>`<span><i style="background:${c}"></i>${s}</span>`).join('');
+  const open=new Set((document.getElementById('areaTable').dataset.open||'').split('|').filter(Boolean));
+  document.getElementById('areaTable').innerHTML=
+    `<tr><th>준비 영역</th><th>진행 상태</th><th class="num">완료/전체</th><th class="num">준비율</th><th class="num">지연</th><th>다음 목표일</th></tr>`+
+    A.map(a=>{const base=a.total-a.na||1;
+      const bar=[[a.done,'var(--st-done)','완료'],[a.prog,'var(--st-prog)','진행중'],[a.todo,'var(--st-todo)','미착수'],[a.hold,'var(--st-hold)','보류']]
+        .filter(x=>x[0]).map(([n,c,l])=>`<span style="width:${n/base*100}%;background:${c}" title="${l} ${n}"></span>`).join('');
+      const items=open.has(a.name)?`<tr class="area-items"><td colspan="6"><table>
+        <tr><th>ID</th><th>준비 항목</th><th>상태</th><th>세부 내용 / 비고</th><th>목표일</th></tr>
+        ${a.items.map(i=>`<tr><td>${esc(i.id)}</td><td style="white-space:nowrap;font-weight:600">${esc(i.item)}</td>
+          <td><select class="st-sel st st-${esc(i.status)}" data-k="${esc(a.name+'|'+i.id)}" aria-label="${esc(i.item)} 상태">
+            ${(ITEM_OPTS.includes(i.status)?[]:[i.status||'미착수']).concat(ITEM_OPTS).map(s=>`<option ${s===i.status||(!ITEM_OPTS.includes(i.status)&&s===(i.status||'미착수'))?'selected':''} ${ITEM_OPTS.includes(s)?'':'disabled'}>${esc(s)}</option>`).join('')}</select></td>
+          <td style="color:var(--text-2)">${esc(i.detail)}${i.note?`<div style="margin-top:2px;color:var(--muted)">비고: ${esc(i.note)}</div>`:''}</td>
+          <td style="white-space:nowrap">${esc(i.target||'-')}</td></tr>`).join('')}</table></td></tr>`:'';
+      return `<tr class="area-row" data-area="${esc(a.name)}"><td style="white-space:nowrap;font-weight:600">${open.has(a.name)?'▾':'▸'} ${esc(a.name)}</td>
+        <td style="width:40%"><div class="hbar">${bar}</div></td><td class="num">${a.done} / ${a.total}</td>
+        <td class="num"><b>${pct(a.rate)}</b></td><td class="num" ${a.late?'style="color:var(--bad);font-weight:700"':''}>${a.late}</td>
+        <td>${a.next||'-'}</td></tr>${items}`;}).join('');
+  document.querySelectorAll('.area-row').forEach(tr=>tr.onclick=()=>{const t=document.getElementById('areaTable');
+    const s=new Set((t.dataset.open||'').split('|').filter(Boolean)); s.has(tr.dataset.area)?s.delete(tr.dataset.area):s.add(tr.dataset.area);
+    t.dataset.open=[...s].join('|'); renderPartner();});
+
+  const maxR=Math.max(1,...M.regions.map(r=>r.y4+r.y2));
+  document.getElementById('regionBars').innerHTML=M.regions.map(r=>{
+    const hot=/1순위/.test(r.priority);
+    return `<div class="rb" title="${esc(r.region)}: 4년제 ${r.y4} · 2년제 ${r.y2} · 글로컬 ${r.glocal} · 기존+Try ${r.existing}">
+      <div style="font-weight:600">${esc(r.region)}</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="track" style="width:${(r.y4+r.y2)/maxR*100}%">
+        ${r.y4?`<span style="flex:${r.y4};background:var(--s-o)"></span>`:''}${r.y2?`<span style="flex:${r.y2};background:var(--s-2y)"></span>`:''}</div>
+        <span style="font-variant-numeric:tabular-nums;color:var(--text-2)">${r.y4+r.y2}</span></div>
+      <div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap"><span class="pill">파트너 ${r.partners}</span>${r.priority?`<span class="pill ${hot?'hot':''}">${esc(r.priority.split(':')[0])}</span>`:''}</div></div>`;}).join('');
+  document.getElementById('regionTable').innerHTML=`<tr><th>권역</th><th class="num">파트너</th><th class="num">4년제</th><th class="num">2년제</th><th class="num">계</th><th class="num">글로컬</th><th class="num">기존+Try</th><th>우선순위(초안)</th></tr>`+
+    M.regions.map(r=>`<tr><td>${esc(r.region)}</td><td class="num">${r.partners}</td><td class="num">${r.y4}</td><td class="num">${r.y2}</td><td class="num"><b>${r.y4+r.y2}</b></td><td class="num">${r.glocal}</td><td class="num">${r.existing}</td><td>${esc(r.priority)}</td></tr>`).join('');
+
+  document.getElementById('partnerTable').innerHTML=
+    `<tr><th>No</th><th>권역</th><th>회사명</th><th>인게이지 단계</th><th class="ctr">계약</th><th>주간 할일 (연동)</th><th>확인 필요</th><th></th></tr>`+
+    M.partners.map(p=>{
+      const ts=state.tasks.filter(t=>str(t.account)===p.name).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+      const last=ts[0], o=ts.filter(t=>t.done==='O').length, x=ts.filter(t=>t.done==='X').length;
+      const link=last?`<div class="link-todo"><b>${esc(String(last.todo).split('\n')[0]||'-')}</b><br>${fmtDate(last.date)} · <span style="color:${last.done==='O'?'var(--good)':last.done==='X'?'var(--bad)':'var(--muted)'};font-weight:700">${last.done||'미기입'}</span>${ts.length>1?` · 총 ${ts.length}건 (O ${o}/X ${x})`:''}</div>`:'<span class="note">-</span>';
+      return `<tr><td>${esc(p.no)}</td><td style="white-space:nowrap">${esc(p.region)}</td>
+        <td class="acc">${esc(p.name)}${p.web?`<div class="note" style="font-weight:400">${esc(p.web)}</div>`:''}</td>
+        <td><select class="stage-sel stage-${esc(p.stage)}" data-p="${esc(p.name)}" aria-label="${esc(p.name)} 인게이지 단계">
+          ${STAGE_OPTS.map(s=>`<option ${s===p.stage?'selected':''}>${s}</option>`).join('')}</select></td>
+        <td class="ctr"><div class="ox" role="group" aria-label="${esc(p.name)} 계약" data-p="${esc(p.name)}">
+          <button data-v="O" class="${p.contract==='O'?'on-o':''}" aria-pressed="${p.contract==='O'}">O</button>
+          <button data-v="X" class="${p.contract==='X'?'on-x':''}" aria-pressed="${p.contract==='X'}">X</button></div></td>
+        <td>${link}</td><td class="note" style="min-width:160px">${esc(p.issue)}</td>
+        <td class="row-actions">${p.custom?`<span class="pill" title="이 화면에서 직접 추가한 파트너사">직접 추가</span> <button class="btn ghost p-edit" data-id="${esc(p.custom)}">수정</button>`:''}</td></tr>`;}).join('');
+  document.querySelectorAll('#partnerTable .p-edit').forEach(b=>b.onclick=()=>openPModal(b.dataset.id));
+  const setEdit=(name,k,v)=>{pstate.edits=pstate.edits||{};pstate.edits[name]={...(pstate.edits[name]||{}),[k]:v};
+    localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); renderPartner();};
+  document.querySelectorAll('#partnerTable .stage-sel').forEach(s=>s.onchange=()=>setEdit(s.dataset.p,'stage',s.value));
+  document.querySelectorAll('#partnerTable .ox').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>setEdit(g.dataset.p,'contract',b.dataset.v)));
+
+  document.querySelectorAll('#areaTable .st-sel').forEach(s=>{s.onclick=e=>e.stopPropagation();
+    s.onchange=()=>{pstate.itemEdits={...(pstate.itemEdits||{}),[s.dataset.k]:s.value};
+      localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); renderPartner();};});
+  document.getElementById('pSource').textContent=`출처: ${pstate.source}${pstate.loaded?` · 불러온 시각 ${new Date(pstate.loaded).toLocaleString('ko-KR')}`:''} · 체크리스트 상태·인게이지 단계·계약은 이 화면에서 바꾸면 이 브라우저에 저장됩니다(엑셀에는 반영되지 않음).`;
+}
+
+// ---------- 파트너사 직접 추가 ----------
+const pBg=document.getElementById('pModalBg'), pForm=document.getElementById('pForm');
+let pEditing=null;
+function openPModal(id){
+  const M=pModel(), c=id?(pstate.customPartners||[]).find(x=>x.id===id):null;
+  pEditing=c?c.id:null;
+  document.getElementById('pmTitle').textContent=c?'파트너사 수정':'파트너사 추가';
+  document.getElementById('pmDelete').style.display=c?'':'none';
+  const regions=[...new Set(M.regions.map(r=>r.region).concat(M.partners.map(p=>p.region)))].filter(Boolean);
+  document.getElementById('pRegionSel').innerHTML=regions.map(r=>`<option>${esc(r)}</option>`).join('');
+  const ed=c?((pstate.edits||{})[c.name]||{}):{};
+  const v=c?{...c,stage:ed.stage||c.stage,contract:ed.contract||c.contract}:{region:regions[0],name:'',web:'',stage:'발굴',contract:'X',loc:'',issue:''};
+  ['region','name','web','stage','contract','loc','issue'].forEach(k=>pForm.elements[k].value=v[k]||'');
+  pBg.classList.add('show'); pForm.elements.name.focus();
+}
+const closePModal=()=>pBg.classList.remove('show');
+document.getElementById('btnAddPartner').onclick=()=>openPModal(null);
+document.getElementById('pmCancel').onclick=closePModal;
+pBg.onclick=e=>{if(e.target===pBg)closePModal();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePModal();});
+document.getElementById('pmSave').onclick=()=>{
+  if(!pForm.reportValidity()) return;
+  const v={}; ['region','name','web','stage','contract','loc','issue'].forEach(k=>v[k]=pForm.elements[k].value.trim());
+  const list=pstate.customPartners=pstate.customPartners||[];
+  const taken=pModel().partners.some(p=>p.name===v.name&&p.custom!==pEditing);
+  if(taken){toast('같은 회사명의 파트너사가 이미 있습니다');return;}
+  pstate.edits=pstate.edits||{};
+  if(pEditing){const c=list.find(x=>x.id===pEditing); if(c.name!==v.name) delete pstate.edits[c.name]; Object.assign(c,v);}
+  else list.push({...v,id:uid()});
+  pstate.edits[v.name]={stage:v.stage,contract:v.contract};
+  localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); closePModal(); renderPartner(); renderUniv();
+  toast(pEditing?'파트너사를 수정했습니다':'파트너사를 추가했습니다');
+};
+document.getElementById('pmDelete').onclick=()=>{
+  if(!confirm('이 파트너사를 삭제할까요?')) return;
+  const c=(pstate.customPartners||[]).find(x=>x.id===pEditing);
+  pstate.customPartners=pstate.customPartners.filter(x=>x.id!==pEditing); if(c&&pstate.edits) delete pstate.edits[c.name];
+  localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); closePModal(); renderPartner(); renderUniv(); toast('삭제했습니다');
+};
+
+// =================== 대학 목록 ===================
+function renderUniv(){
+  const hasP=!!(pstate.sheets&&pstate.sheets['대학목록']);
+  document.getElementById('uWelcome').classList.toggle('show',!hasP);
+  ['uKpis','uSection'].forEach(id=>document.getElementById(id).style.display=hasP?'':'none');
+  if(!hasP) return;
+  const M=pModel(), U=M.univ;
+  const tasksBy=new Map();
+  state.tasks.forEach(t=>{const k=str(t.account); if(!k) return; (tasksBy.get(k)||tasksBy.set(k,[]).get(k)).push(t);});
+  const partnersBy=new Map(); M.partners.forEach(p=>(partnersBy.get(p.region)||partnersBy.set(p.region,[]).get(p.region)).push(p));
+  const cnt=f=>U.filter(f).length;
+  const k=[['전체 대학',U.length+'개교',`4년제 ${cnt(u=>u.type==='4년제')} · 2년제 ${cnt(u=>u.type==='2년제')}`],
+    ['영업기회',cnt(u=>u.status==='영업기회')+'개교',''],
+    ['기존 거래처',cnt(u=>u.status==='기존')+'개교',`Try ${cnt(u=>u.status==='Try')}개교`],
+    ['글로컬 선정',cnt(u=>u.glocal)+'개교',''],
+    ['파트너 권역 대학',cnt(u=>partnersBy.has(u.region))+'개교',`파트너 없는 권역 ${cnt(u=>!partnersBy.has(u.region))}개교`],
+    ['할일 연동 학교',U.filter(u=>tasksBy.has(u.name)).length+'개교','주간 할일 Account와 학교명 일치']];
+  document.getElementById('uKpis').innerHTML=k.map(([l,v,h])=>`<div class="card kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h||'&nbsp;'}</div></div>`).join('');
+
+  const fill=(id,vals,label)=>{const el=document.getElementById(id),cur=el.value;
+    el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option ${v===cur?'selected':''}>${esc(v)}</option>`).join('');};
+  fill('uRegion',[...new Set(U.map(u=>u.region))],'전체 권역');
+  fill('uType',[...new Set(U.map(u=>u.type).filter(Boolean))],'전체 구분');
+  fill('uStatus',[...new Set(U.map(u=>u.status).filter(Boolean))],'전체 거래상태');
+  const q=document.getElementById('uq').value.trim().toLowerCase(), fr=document.getElementById('uRegion').value,
+    ft=document.getElementById('uType').value, fs=document.getElementById('uStatus').value,
+    fg=document.getElementById('uGlocal').checked, fd=document.getElementById('uTodo').checked;
+  const rows=U.filter(u=>(!q||(u.name+' '+u.loc).toLowerCase().includes(q))&&(!fr||u.region===fr)&&(!ft||u.type===ft)&&
+    (!fs||u.status===fs)&&(!fg||u.glocal)&&(!fd||tasksBy.has(u.name)));
+  document.getElementById('uCount').textContent=`${rows.length} / ${U.length}개교`;
+  const UST=['영업기회','기존','Try'];
+  const stTag=u=>`<select class="st-sel st ${u.status==='기존'?'st-완료':u.status==='Try'?'st-보류':'st-진행중'}" data-u="${esc(u.name)}" aria-label="${esc(u.name)} 거래상태">
+    ${(UST.includes(u.status)?UST:[u.status||'-',...UST]).map(s=>`<option ${s===u.status?'selected':''}>${esc(s)}</option>`).join('')}</select>`;
+  document.getElementById('univTable').innerHTML=
+    `<tr><th>권역</th><th>학교</th><th>소재지</th><th>구분</th><th>학제</th><th>거래상태</th><th class="ctr">글로컬</th><th>주간 할일 (연동)</th></tr>`+
+    (rows.length?rows.map(u=>{
+      const ts=(tasksBy.get(u.name)||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')), last=ts[0];
+      const link=last?`<div class="link-todo"><b>${esc(String(last.todo).split('\n')[0]||'-')}</b><br>${fmtDate(last.date)} · <span style="color:${last.done==='O'?'var(--good)':last.done==='X'?'var(--bad)':'var(--muted)'};font-weight:700">${last.done||'미기입'}</span>${ts.length>1?` · 총 ${ts.length}건`:''}</div>`:'<span class="note">-</span>';
+      return `<tr><td style="white-space:nowrap">${esc(u.region)}</td><td class="acc">${esc(u.name)}</td><td style="white-space:nowrap;color:var(--text-2)">${esc(u.loc)}</td>
+        <td style="white-space:nowrap">${esc(u.type)}</td><td style="white-space:nowrap;color:var(--text-2)">${esc(u.kind)}</td><td>${stTag(u)}</td>
+        <td class="ctr">${u.glocal?'<span class="chk y" title="글로컬 선정">✔</span>':''}</td>
+        <td>${link}</td></tr>`;}).join('')
+    :`<tr><td colspan="8" class="empty">조건에 맞는 대학이 없습니다</td></tr>`);
+  document.querySelectorAll('#univTable .st-sel').forEach(s=>s.onchange=()=>{
+    pstate.univEdits={...(pstate.univEdits||{}),[s.dataset.u]:s.value};
+    localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); renderUniv(); renderPartner();});
+}
+['uq','uRegion','uType','uStatus','uGlocal','uTodo'].forEach(id=>document.getElementById(id).addEventListener(id==='uq'?'input':'change',renderUniv));
+document.getElementById('uReset').onclick=()=>{['uq','uRegion','uType','uStatus'].forEach(id=>document.getElementById(id).value='');
+  ['uGlocal','uTodo'].forEach(id=>document.getElementById(id).checked=false); renderUniv();};
+
+function importPartner(wb,fname){
+  const sheets={};
+  ['파트너사',...AREAS,'딜 등록 대장','대학목록'].forEach(n=>{const ws=wb.Sheets[n]; if(!ws) return;
+    sheets[n]=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true}).map(r=>r.map(v=>v instanceof Date?ymd(v):v));});
+  pstate={sheets,source:fname,loaded:new Date().toISOString(),edits:pstate.edits||{},itemEdits:pstate.itemEdits||{},univEdits:pstate.univEdits||{},customPartners:pstate.customPartners||[]};
+  localStorage.setItem(PLS_KEY,JSON.stringify(pstate)); renderPartner(); showView('partner'); toast('파트너 인게이지 데이터를 불러왔습니다');
+}
+
+function showView(v){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  document.querySelectorAll('.view').forEach(el=>el.classList.toggle('on',el.id==='view-'+v));
+  document.querySelectorAll('.todo-only').forEach(el=>el.style.display=v==='todo'?'':'none');
+  document.querySelector('header h1').textContent={todo:'주간 할일 대시보드',partner:'파트너 인게이지 대시보드',univ:'대학 목록'}[v];
+  document.getElementById('sourceInfo').style.display=v==='todo'?'':'none';
+  localStorage.setItem('dash-view',v); if(v==='todo') renderMonth(); else if(v==='univ') renderUniv(); else renderPartner();
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>showView(b.dataset.view));
+const _render=render; render=function(){_render(); renderPartner(); renderUniv();};
+
+render();
+showView(localStorage.getItem('dash-view')||'todo');
+let _rz; window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(renderMonth,120);});
+</script>
+</body>
+</html>
